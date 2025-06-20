@@ -1,4 +1,7 @@
-add_executable(RGBStreamer main.cpp)
+add_executable(RGBStreamer
+    main.cpp
+    CaptureModule.cpp
+)
 
 # Link required libraries
 find_package(nlohmann_json CONFIG REQUIRED)
