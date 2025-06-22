@@ -53,9 +53,9 @@ bool ConfigManager::load(const std::string& path, Config& outCfg) {
     if (!root.is_object())
         throw std::runtime_error("root is not an object");
 
-    auto intervalIt = root.find("intervalMs");
+    auto intervalIt = root.find("captureIntervalMs");
     if (intervalIt == root.end() || !intervalIt->is_number_integer())
-        throw std::runtime_error("intervalMs missing or invalid");
+        throw std::runtime_error("captureIntervalMs missing or invalid");
     outCfg.intervalMs = intervalIt->get<int>();
 
     auto formatIt = root.find("format");

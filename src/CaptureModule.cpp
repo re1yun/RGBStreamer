@@ -21,6 +21,70 @@ void logError(const char* msg, HRESULT hr) {
     // Output to standard error stream
     std::cerr << buf;
 }
+
+/**
+ * Callback function for EnumDisplayMonitors to collect monitor information
+ */
+BOOL CALLBACK MonitorEnumProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMonitor, LPARAM dwData) {
+    auto* monitors = reinterpret_cast<std::vector<MonitorInfo>*>(dwData);
+    
+    MONITORINFOEX monitorInfo;
+    monitorInfo.cbSize = sizeof(MONITORINFOEX);
+    if (GetMonitorInfo(hMonitor, &monitorInfo)) {
+        MonitorInfo info;
+        info.handle = hMonitor;
+        info.deviceName = monitorInfo.szDevice;
+        info.index = static_cast<int>(monitors->size());
+        
+        // Create a descriptive name
+        char nameBuf[256];
+        sprintf(nameBuf, "Monitor %d (%dx%d)", 
+                info.index + 1,
+                monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left,
+                monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top);
+        info.name = nameBuf;
+        
+        monitors->push_back(info);
+    }
+    
+    return TRUE; // Continue enumeration
+}
+}
+
+/**
+ * Get list of all available monitors
+ */
+std::vector<MonitorInfo> CaptureModule::enumerateMonitors() {
+    std::vector<MonitorInfo> monitors;
+    EnumDisplayMonitors(nullptr, nullptr, MonitorEnumProc, reinterpret_cast<LPARAM>(&monitors));
+    
+    // Now populate the DXGI output descriptions for each monitor
+    ComPtr<IDXGIFactory1> factory;
+    HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(factory.GetAddressOf()));
+    if (SUCCEEDED(hr)) {
+        ComPtr<IDXGIAdapter1> adapter;
+        ComPtr<IDXGIOutput> output;
+        
+        // Enumerate all graphics adapters (GPUs)
+        for (UINT i = 0; factory->EnumAdapters1(i, adapter.ReleaseAndGetAddressOf()) != DXGI_ERROR_NOT_FOUND; ++i) {
+            // For each adapter, enumerate all outputs (monitors)
+            for (UINT j = 0; adapter->EnumOutputs(j, output.ReleaseAndGetAddressOf()) != DXGI_ERROR_NOT_FOUND; ++j) {
+                DXGI_OUTPUT_DESC desc;
+                // Get description of this output
+                if (SUCCEEDED(output->GetDesc(&desc))) {
+                    // Find matching monitor in our list
+                    for (auto& monitor : monitors) {
+                        if (desc.Monitor == monitor.handle) {
+                            monitor.desc = desc;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    return monitors;
 }
 
 /**
@@ -29,13 +93,31 @@ void logError(const char* msg, HRESULT hr) {
  * and creates the desktop duplication interface
  */
 bool CaptureModule::initialize(HWND hwnd) {
-    // Clean up any existing resources first
-    shutdown();
-
     // Find the monitor that contains the specified window
     // MONITOR_DEFAULTTONEAREST finds the nearest monitor if window spans multiple monitors
     HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-    
+    return initializeInternal(monitor);
+}
+
+/**
+ * Initialize the capture module for a specific monitor by index
+ */
+bool CaptureModule::initialize(int monitorIndex) {
+    auto monitors = enumerateMonitors();
+    if (monitorIndex < 0 || monitorIndex >= static_cast<int>(monitors.size())) {
+        OutputDebugStringA("Invalid monitor index\n");
+        return false;
+    }
+    return initializeInternal(monitors[monitorIndex].handle);
+}
+
+/**
+ * Internal initialization method that takes a monitor handle
+ */
+bool CaptureModule::initializeInternal(HMONITOR monitorHandle) {
+    // Clean up any existing resources first
+    shutdown();
+
     // Create DXGI factory - this is the entry point for DXGI operations
     ComPtr<IDXGIFactory1> factory;
     HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(factory.GetAddressOf()));
@@ -55,7 +137,7 @@ bool CaptureModule::initialize(HWND hwnd) {
         for (UINT j = 0; adapter->EnumOutputs(j, output.ReleaseAndGetAddressOf()) != DXGI_ERROR_NOT_FOUND; ++j) {
             DXGI_OUTPUT_DESC desc;
             // Get description of this output
-            if (SUCCEEDED(output->GetDesc(&desc)) && desc.Monitor == monitor) {
+            if (SUCCEEDED(output->GetDesc(&desc)) && desc.Monitor == monitorHandle) {
                 // Found the monitor we're looking for!
                 outputDesc_ = desc;
                 found = true;
@@ -107,7 +189,7 @@ bool CaptureModule::initialize(HWND hwnd) {
  * This method acquires a frame from the desktop duplication interface
  * and copies it to a staging texture for CPU access
  */
-bool CaptureModule::grabFrame(ID3D11Texture2D*& outTex) {
+bool CaptureModule::grabFrame(ID3D11Texture2D*& outTex, UINT timeoutMs) {
     // Check if we have a valid duplication interface
     if (!duplication_)
         return false;
@@ -119,10 +201,10 @@ bool CaptureModule::grabFrame(ID3D11Texture2D*& outTex) {
     ComPtr<IDXGIResource> resource;
     DXGI_OUTDUPL_FRAME_INFO frameInfo = {};
     
-    // Try to acquire the next frame with 0 timeout (non-blocking)
-    HRESULT hr = duplication_->AcquireNextFrame(0, &frameInfo, resource.GetAddressOf());
+    // Try to acquire the next frame with specified timeout
+    HRESULT hr = duplication_->AcquireNextFrame(timeoutMs, &frameInfo, resource.GetAddressOf());
     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
-        // No frame available right now, this is normal
+        // No frame available within timeout period
         return false;
     }
     if (FAILED(hr)) {

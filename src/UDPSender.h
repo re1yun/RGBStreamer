@@ -1,6 +1,8 @@
 #pragma once
 
 #include <array>
+#include <string>
+#include <regex>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
@@ -16,6 +18,12 @@ public:
     bool open();
 
     /**
+     * Set the format string for RGB data transmission.
+     * @param format Format string with placeholders {r}, {g}, {b} for RGB values.
+     */
+    void setFormat(const std::string& format);
+
+    /**
      * Send an RGB triple to the specified address.
      * @param addr Destination address.
      * @param rgb  Array with {R,G,B} values in range [0,255].
@@ -29,4 +37,5 @@ public:
 private:
     SOCKET sock_ = INVALID_SOCKET; ///< UDP socket handle
     bool initialized_ = false;     ///< Whether WSAStartup succeeded
+    std::string format_ = "R{r:03d}G{g:03d}B{b:03d}\n"; ///< Format string for RGB data
 };
