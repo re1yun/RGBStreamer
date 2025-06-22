@@ -4,6 +4,7 @@ add_executable(RGBStreamer
     RGBProcessor.cpp
     UDPSender.cpp
     ConfigManager.cpp
+    MainLoop.cpp
 )
 
 # Link required libraries
