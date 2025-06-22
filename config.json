@@ -1,0 +1,7 @@
+{
+  "captureIntervalMs": 33,
+  "devices": [
+    { "ip": "127.0.0.1", "port": 6000 }
+  ],
+  "format": "R{r:03d}G{g:03d}B{b:03d}\n"
+}
