@@ -2,6 +2,7 @@ add_executable(RGBStreamer
     main.cpp
     CaptureModule.cpp
     RGBProcessor.cpp
+    UDPSender.cpp
 )
 
 # Link required libraries
