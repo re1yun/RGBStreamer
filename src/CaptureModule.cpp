@@ -1,4 +1,5 @@
 #include "CaptureModule.h"
+#include "Logger.h"
 #include <windows.h>
 #include <iostream>
 #include <cstdio>
@@ -20,6 +21,10 @@ void logError(const char* msg, HRESULT hr) {
     OutputDebugStringA(buf);
     // Output to standard error stream
     std::cerr << buf;
+    
+    // Also log to our logger
+    Logger::getInstance().logCapture(std::string(msg) + " (HRESULT=0x" + 
+                                    std::to_string(static_cast<unsigned long>(hr)) + ")");
 }
 
 /**
@@ -103,11 +108,17 @@ bool CaptureModule::initialize(HWND hwnd) {
  * Initialize the capture module for a specific monitor by index
  */
 bool CaptureModule::initialize(int monitorIndex) {
+    Logger& logger = Logger::getInstance();
+    logger.logCapture("Initializing capture for monitor index: " + std::to_string(monitorIndex));
+    
     auto monitors = enumerateMonitors();
     if (monitorIndex < 0 || monitorIndex >= static_cast<int>(monitors.size())) {
+        logger.logCapture("Invalid monitor index: " + std::to_string(monitorIndex));
         OutputDebugStringA("Invalid monitor index\n");
         return false;
     }
+    
+    logger.logCapture("Found monitor: " + monitors[monitorIndex].name);
     return initializeInternal(monitors[monitorIndex].handle);
 }
 
@@ -115,6 +126,9 @@ bool CaptureModule::initialize(int monitorIndex) {
  * Internal initialization method that takes a monitor handle
  */
 bool CaptureModule::initializeInternal(HMONITOR monitorHandle) {
+    Logger& logger = Logger::getInstance();
+    logger.logCapture("Initializing capture internally");
+    
     // Clean up any existing resources first
     shutdown();
 
@@ -122,6 +136,7 @@ bool CaptureModule::initializeInternal(HMONITOR monitorHandle) {
     ComPtr<IDXGIFactory1> factory;
     HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(factory.GetAddressOf()));
     if (FAILED(hr)) {
+        logger.logCapture("CreateDXGIFactory1 failed");
         logError("CreateDXGIFactory1 failed", hr);
         return false;
     }
@@ -149,14 +164,18 @@ bool CaptureModule::initializeInternal(HMONITOR monitorHandle) {
     }
 
     if (!found) {
+        logger.logCapture("Failed to find matching output for monitor");
         OutputDebugStringA("Failed to find matching output for window monitor\n");
         return false;
     }
+
+    logger.logCapture("Found matching output, creating DirectX device");
 
     // Query for IDXGIOutput1 interface which provides desktop duplication
     ComPtr<IDXGIOutput1> output1;
     hr = output.As(&output1);
     if (FAILED(hr)) {
+        logger.logCapture("Query IDXGIOutput1 failed");
         logError("Query IDXGIOutput1 failed", hr);
         return false;
     }
@@ -169,18 +188,23 @@ bool CaptureModule::initializeInternal(HMONITOR monitorHandle) {
                            levels, 1, D3D11_SDK_VERSION, device_.GetAddressOf(),
                            nullptr, context_.GetAddressOf());
     if (FAILED(hr)) {
+        logger.logCapture("D3D11CreateDevice failed");
         logError("D3D11CreateDevice failed", hr);
         return false;
     }
+
+    logger.logCapture("DirectX device created, setting up desktop duplication");
 
     // Create the desktop duplication interface
     // This is what actually captures the screen content
     hr = output1->DuplicateOutput(device_.Get(), duplication_.GetAddressOf());
     if (FAILED(hr)) {
+        logger.logCapture("DuplicateOutput failed");
         logError("DuplicateOutput failed", hr);
         return false;
     }
 
+    logger.logCapture("Capture module initialized successfully");
     return true;
 }
 
@@ -191,8 +215,10 @@ bool CaptureModule::initializeInternal(HMONITOR monitorHandle) {
  */
 bool CaptureModule::grabFrame(ID3D11Texture2D*& outTex, UINT timeoutMs) {
     // Check if we have a valid duplication interface
-    if (!duplication_)
+    if (!duplication_) {
+        Logger::getInstance().logCapture("Cannot grab frame: duplication interface not initialized");
         return false;
+    }
 
     // Initialize output parameter
     outTex = nullptr;
@@ -208,6 +234,7 @@ bool CaptureModule::grabFrame(ID3D11Texture2D*& outTex, UINT timeoutMs) {
         return false;
     }
     if (FAILED(hr)) {
+        Logger::getInstance().logCapture("AcquireNextFrame failed");
         logError("AcquireNextFrame failed", hr);
         return false;
     }
@@ -216,6 +243,7 @@ bool CaptureModule::grabFrame(ID3D11Texture2D*& outTex, UINT timeoutMs) {
     ComPtr<ID3D11Texture2D> frameTex;
     hr = resource.As(&frameTex);
     if (FAILED(hr)) {
+        Logger::getInstance().logCapture("QueryInterface(ID3D11Texture2D) failed");
         logError("QueryInterface(ID3D11Texture2D) failed", hr);
         duplication_->ReleaseFrame();
         return false;
@@ -236,6 +264,7 @@ bool CaptureModule::grabFrame(ID3D11Texture2D*& outTex, UINT timeoutMs) {
         // First time - create the staging texture
         hr = device_->CreateTexture2D(&desc, nullptr, stagingTex_.ReleaseAndGetAddressOf());
         if (FAILED(hr)) {
+            Logger::getInstance().logCapture("CreateTexture2D for staging failed");
             logError("CreateTexture2D for staging failed", hr);
             duplication_->ReleaseFrame();
             return false;
@@ -246,8 +275,10 @@ bool CaptureModule::grabFrame(ID3D11Texture2D*& outTex, UINT timeoutMs) {
         stagingTex_->GetDesc(&currentDesc);
         if (currentDesc.Width != desc.Width || currentDesc.Height != desc.Height) {
             // Resolution changed, recreate staging texture
+            Logger::getInstance().logCapture("Resolution changed, recreating staging texture");
             hr = device_->CreateTexture2D(&desc, nullptr, stagingTex_.ReleaseAndGetAddressOf());
             if (FAILED(hr)) {
+                Logger::getInstance().logCapture("CreateTexture2D for staging failed");
                 logError("CreateTexture2D for staging failed", hr);
                 duplication_->ReleaseFrame();
                 return false;
@@ -277,6 +308,8 @@ bool CaptureModule::grabFrame(ID3D11Texture2D*& outTex, UINT timeoutMs) {
  * This method releases all COM objects and resets smart pointers
  */
 void CaptureModule::shutdown() {
+    Logger::getInstance().logCapture("Shutting down capture module");
+    
     // Release staging texture (CPU-accessible copy of frames)
     stagingTex_.Reset();
     
@@ -288,4 +321,6 @@ void CaptureModule::shutdown() {
     
     // Release DirectX device
     device_.Reset();
+    
+    Logger::getInstance().logCapture("Capture module shutdown complete");
 }

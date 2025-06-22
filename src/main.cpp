@@ -1,5 +1,6 @@
 #include "ConfigManager.h"
 #include "CaptureModule.h"
+#include "Logger.h"
 
 #include <atomic>
 #include <csignal>
@@ -96,32 +97,46 @@ int listAvailableMonitors() {
 } // namespace
 
 int main(int argc, char* argv[]) {
+    // Initialize logger
+    Logger& logger = Logger::getInstance();
+    logger.log("RGBStreamer starting up");
+    
     std::string configPath = parseConfigPath(argc, argv);
     
     if (configPath.empty()) {
+        logger.log("No config file specified");
         std::cerr << "Usage: RGBStreamer --config=config.json\n";
         std::cerr << "   or: RGBStreamer config.json\n";
         return 1;
     }
 
+    logger.log("Config file: " + configPath);
+
     // List available monitors at startup
     int selectedIndex = listAvailableMonitors();
     
     if (selectedIndex == -1) {
+        logger.log("No monitors available or invalid selection");
         std::cerr << "No monitors available or invalid selection. Exiting.\n";
         return 1;
     }
 
+    logger.log("Selected monitor index: " + std::to_string(selectedIndex));
+
     try {
         Config cfg{};
         if (!ConfigManager::load(configPath, cfg)) {
+            logger.log("Failed to load config: " + configPath);
             std::cerr << "Failed to load config: " << configPath << "\n";
             return 1;
         }
 
+        logger.log("Config loaded successfully");
+
         // Override monitor index with user selection
         cfg.monitorIndex = selectedIndex;
         
+        logger.log("Starting capture from monitor " + std::to_string(selectedIndex));
         std::cout << "Starting capture from monitor " << selectedIndex << "...\n";
         std::cout << "Press Ctrl+C to stop.\n\n";
 
@@ -129,7 +144,10 @@ int main(int argc, char* argv[]) {
         // is set to true.
         std::signal(SIGINT, onSignal);
         runMainLoop(cfg, g_stop);
+        
+        logger.log("RGBStreamer shutting down");
     } catch (const std::exception& e) {
+        logger.log("Fatal error: " + std::string(e.what()));
         std::cerr << "Error: " << e.what() << "\n";
         return 1;
     }
