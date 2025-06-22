@@ -19,6 +19,7 @@ struct Config {
     int intervalMs = 0;            ///< Delay between frames in milliseconds
     std::vector<Device> devices;   ///< List of destination devices
     std::string format;            ///< Packet format string
+    int monitorIndex = -1;         ///< Monitor index to capture (-1 = auto-detect from window)
 };
 
 /**

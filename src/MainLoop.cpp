@@ -1,9 +1,10 @@
+#define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include "CaptureModule.h"
 #include "RGBProcessor.h"
 #include "UDPSender.h"
 #include "ConfigManager.h"
-#include <winsock2.h>
-#include <ws2tcpip.h>
 #include <queue>
 #include <thread>
 #include <mutex>
@@ -76,8 +77,21 @@ void runMainLoop(const Config& cfg, std::atomic<bool>& stopFlag) {
 
     CaptureModule capture;
     UDPSender sender;
-    capture.initialize(nullptr);
+    
+    // Initialize capture based on configuration
+    if (cfg.monitorIndex >= 0) {
+        // Use specified monitor index
+        if (!capture.initialize(cfg.monitorIndex)) {
+            OutputDebugStringA("Failed to initialize capture for specified monitor\n");
+            return;
+        }
+    } else {
+        // Auto-detect monitor from window (fallback)
+        capture.initialize(nullptr);
+    }
+    
     sender.open();
+    sender.setFormat(cfg.format);
 
     ThreadSafeQueue<ID3D11Texture2D*> frameQueue;
     ThreadSafeQueue<std::array<int, 3>> rgbQueue;
@@ -86,10 +100,9 @@ void runMainLoop(const Config& cfg, std::atomic<bool>& stopFlag) {
     std::thread capThread([&](){
         while (!stopFlag.load()) {
             ID3D11Texture2D* tex = nullptr;
-            if (capture.grabFrame(tex) && tex) {
+            if (capture.grabFrame(tex, interval) && tex) {
                 frameQueue.push(tex);
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
         }
         frameQueue.stop();
     });
