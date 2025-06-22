@@ -5,6 +5,7 @@ add_executable(RGBStreamer
     UDPSender.cpp
     ConfigManager.cpp
     MainLoop.cpp
+    Logger.cpp
 )
 
 # Link required libraries

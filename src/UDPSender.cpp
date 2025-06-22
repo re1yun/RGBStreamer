@@ -1,4 +1,5 @@
 #include "UDPSender.h"
+#include "Logger.h"
 
 #include <cstdio>
 #include <sstream>
@@ -11,18 +12,26 @@
 // closed before creating a new one.
 //----------------------------------------------------------------------
 bool UDPSender::open() {
+    Logger& logger = Logger::getInstance();
+    logger.logUDP("Opening UDP sender");
+    
     close();
 
     WSADATA data{};
-    if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
+    if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
+        logger.logNetworkError("WSAStartup failed");
         return false;
+    }
     initialized_ = true;
 
     sock_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock_ == INVALID_SOCKET) {
+        logger.logNetworkError("Failed to create UDP socket");
         close();
         return false;
     }
+    
+    logger.logUDP("UDP sender opened successfully");
     return true;
 }
 
@@ -34,6 +43,7 @@ bool UDPSender::open() {
 //----------------------------------------------------------------------
 void UDPSender::setFormat(const std::string& format) {
     format_ = format;
+    Logger::getInstance().logUDP("UDP format set to: " + format);
 }
 
 //----------------------------------------------------------------------
@@ -45,8 +55,10 @@ void UDPSender::setFormat(const std::string& format) {
 //----------------------------------------------------------------------
 bool UDPSender::send(const sockaddr_in& addr,
                      const std::array<int, 3>& rgb) {
-    if (sock_ == INVALID_SOCKET)
+    if (sock_ == INVALID_SOCKET) {
+        Logger::getInstance().logNetworkError("Cannot send: UDP socket not initialized");
         return false;
+    }
 
     // Replace placeholders in the format string
     std::string message = format_;
@@ -91,10 +103,18 @@ bool UDPSender::send(const sockaddr_in& addr,
         int sent = ::sendto(sock_, message.c_str(), static_cast<int>(message.length()), 0,
                             reinterpret_cast<const sockaddr*>(&addr),
                             sizeof(addr));
-        if (sent == static_cast<int>(message.length()))
+        if (sent == static_cast<int>(message.length())) {
             return true;
+        }
         ++attempts;
+        
+        if (attempts < 3) {
+            Logger::getInstance().logNetworkError("UDP send attempt " + std::to_string(attempts) + 
+                                                " failed, retrying...");
+        }
     }
+    
+    Logger::getInstance().logNetworkError("UDP send failed after 3 attempts");
     return false;
 }
 
@@ -104,11 +124,15 @@ bool UDPSender::send(const sockaddr_in& addr,
 // Clean up the socket and Winsock resources.
 //----------------------------------------------------------------------
 void UDPSender::close() {
+    Logger& logger = Logger::getInstance();
+    
     if (sock_ != INVALID_SOCKET) {
+        logger.logUDP("Closing UDP socket");
         ::closesocket(sock_);
         sock_ = INVALID_SOCKET;
     }
     if (initialized_) {
+        logger.logUDP("Cleaning up Winsock");
         WSACleanup();
         initialized_ = false;
     }
