@@ -6,6 +6,7 @@ add_executable(RGBStreamer
     ConfigManager.cpp
     MainLoop.cpp
     Logger.cpp
+    RainbowFlow.cpp
 )
 
 # Link required libraries

@@ -213,7 +213,7 @@ bool CaptureModule::initializeInternal(HMONITOR monitorHandle) {
  * This method acquires a frame from the desktop duplication interface
  * and copies it to a staging texture for CPU access
  */
-bool CaptureModule::grabFrame(ID3D11Texture2D*& outTex, UINT timeoutMs) {
+bool CaptureModule::grabFrame(ID3D11Texture2D*& outTex) {
     // Check if we have a valid duplication interface
     if (!duplication_) {
         Logger::getInstance().logCapture("Cannot grab frame: duplication interface not initialized");
@@ -228,7 +228,23 @@ bool CaptureModule::grabFrame(ID3D11Texture2D*& outTex, UINT timeoutMs) {
     DXGI_OUTDUPL_FRAME_INFO frameInfo = {};
     
     // Try to acquire the next frame with specified timeout
-    HRESULT hr = duplication_->AcquireNextFrame(timeoutMs, &frameInfo, resource.GetAddressOf());
+    HRESULT hr = duplication_->AcquireNextFrame(0, &frameInfo, resource.GetAddressOf());
+    if (hr == DXGI_ERROR_ACCESS_LOST) {
+        // Monitor is likely powered off or disconnected
+        static int consecutiveAccessLostCount = 0;
+        consecutiveAccessLostCount++;
+        
+        Logger::getInstance().logCapture("DXGI_ERROR_ACCESS_LOST detected (count: " + std::to_string(consecutiveAccessLostCount) + ")");
+        
+        // If we've had multiple consecutive access lost errors, generate rainbow pattern
+        if (consecutiveAccessLostCount >= 3) {
+            if (rainbowFlow_.generateTexture(device_.Get(), context_.Get(), outTex, outputDesc_)) {
+                Logger::getInstance().logCapture("Generated rainbow pattern due to monitor access lost");
+                return true;
+            }
+        }
+        return false;
+    }
     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
         // No frame available within timeout period
         return false;
@@ -238,6 +254,10 @@ bool CaptureModule::grabFrame(ID3D11Texture2D*& outTex, UINT timeoutMs) {
         logError("AcquireNextFrame failed", hr);
         return false;
     }
+
+    // Reset access lost counter on successful frame acquisition
+    static int consecutiveAccessLostCount = 0;
+    consecutiveAccessLostCount = 0;
 
     // Convert the resource to a D3D11 texture
     ComPtr<ID3D11Texture2D> frameTex;
@@ -312,6 +332,9 @@ void CaptureModule::shutdown() {
     
     // Release staging texture (CPU-accessible copy of frames)
     stagingTex_.Reset();
+    
+    // Clean up rainbow flow resources
+    rainbowFlow_.cleanup();
     
     // Release desktop duplication interface
     duplication_.Reset();
