@@ -117,15 +117,14 @@ void runMainLoop(const Config& cfg, std::atomic<bool>& stopFlag) {
         int frameCount = 0;
         while (!stopFlag.load()) {
             ID3D11Texture2D* tex = nullptr;
-            if (capture.grabFrame(tex, interval) && tex) {
+            if (capture.grabFrame(tex) && tex) {
                 frameQueue.push(tex);
                 frameCount++;
                 if (frameCount % 100 == 0) { // Log every 100 frames
                     logger.logCapture("Captured frame " + std::to_string(frameCount));
                 }
-            } else {
-                logger.logCapture("Failed to grab frame");
             }
+            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
         }
         logger.log("Capture thread stopping, total frames: " + std::to_string(frameCount));
         frameQueue.stop();

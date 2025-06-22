@@ -6,6 +6,7 @@
 #include <wrl/client.h> // Microsoft WRL (Windows Runtime Library) for COM smart pointers
 #include <vector>
 #include <string>
+#include "RainbowFlow.h"
 
 /**
  * Information about a monitor for selection
@@ -47,7 +48,7 @@ public:
      * @param timeoutMs Timeout in milliseconds to wait for next frame (0 = non-blocking)
      * @return true if frame captured successfully, false if no frame available or error
      */
-    bool grabFrame(ID3D11Texture2D*& outTex, UINT timeoutMs = 0);
+    bool grabFrame(ID3D11Texture2D*& outTex);
 
     /**
      * Get list of all available monitors
@@ -79,6 +80,9 @@ private:
     
     // Staging texture - CPU-accessible copy of captured frame
     Microsoft::WRL::ComPtr<ID3D11Texture2D> stagingTex_;
+    
+    // Rainbow flow generator for fallback scenarios
+    RainbowFlow rainbowFlow_;
     
     // Description of the output (monitor) being captured
     DXGI_OUTPUT_DESC outputDesc_ = {};
